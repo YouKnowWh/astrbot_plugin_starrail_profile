@@ -1,14 +1,18 @@
 # astrbot_plugin_starrail_profile
 
-星穹铁道 UID 展示柜 Profile 图片生成插件。项目结构对齐 AstrBot 官方插件模板，核心文件保持扁平：
+基于 [YueHua46 的星铁展示柜图片插件](https://github.com/YueHua46/astrbot_plugin_starrail_profile)，此版本增加 QQ 用户的 UID 绑定。查询范围为游戏内公开展示的角色。
 
-```text
-main.py
-metadata.yaml
-_conf_schema.json
-requirements.txt
-README.md
-```
+## QQ 群命令
+
+| 命令 | 用途 |
+| --- | --- |
+| `/绑定星铁 100534214` | 保存自己的默认 UID。再次绑定会替换旧值。 |
+| `/我的星铁UID` | 查看自己的绑定。 |
+| `/星铁面板` | 发送已绑定 UID 的展示柜图片。 |
+| `/星铁面板 100534214` | 临时查询指定 UID，保留原绑定。 |
+| `/解绑星铁` | 删除自己的绑定。 |
+
+绑定保存在 AstrBot 数据库中，按平台实例和消息发送者 ID 隔离。机器人重启后仍可读取。同一实例在不同群里收到相同的发送者 ID 时，可沿用该绑定。UID 表示默认查询对象。英文命令分别为 `/srbind`、`/sruid`、`/srprofile`、`/srunbind`，原有 `/sr <UID>` 同样可用。
 
 ## 功能
 
@@ -20,10 +24,10 @@ README.md
 
 ## 安装
 
-在 AstrBot 插件市场或插件仓库安装：
+在 AstrBot WebUI 的「插件 → 从链接安装」填写下列地址。若已安装原版，请用此地址安装增强版；两个版本使用同一个插件标识。
 
 ```text
-https://github.com/YueHua46/astrbot_plugin_starrail_profile
+https://github.com/YouKnowWh/astrbot_plugin_starrail_profile
 ```
 
 依赖：

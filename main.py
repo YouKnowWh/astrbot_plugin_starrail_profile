@@ -22,7 +22,7 @@ ASSET_BASE_FALLBACKS = (
     "https://gcore.jsdelivr.net/gh/Mar-7th/StarRailRes@master/",
     "https://raw.githubusercontent.com/Mar-7th/StarRailRes/master/",
 )
-UID_PATTERN = re.compile(r"(?:uid|UID|星铁|崩铁|星穹|开拓者|查|查询|profile|资料)[^\d]{0,24}(\d{8,10})")
+UID_PATTERN = re.compile(r"(?:uid|UID|星铁|崩铁|星穹|开拓者|查|查询|profile|资料)[^\d]{0,24}([0-9]{8,10})(?!\d)")
 
 
 def _normalize_asset_base(value: Optional[str]) -> str:
@@ -392,32 +392,76 @@ async def render_html_to_png(html_path: Path, output_path: Path, width: int, hei
     return output_path
 
 
-@register("astrbot_plugin_starrail_profile", "YueHua46", "根据星穹铁道 UID 生成二次元风格展示柜 Profile 图片。", "1.0.1")
+@register("astrbot_plugin_starrail_profile", "YueHua46", "查询星铁展示柜图片，支持群成员绑定个人 UID。", "1.1.0")
 class StarRailProfilePlugin(Star):
     def __init__(self, context: Context, config: Optional[dict] = None):
         super().__init__(context)
         self.config = config or {}
 
-    @filter.command("srprofile")
-    async def srprofile(self, event: AstrMessageEvent, uid: str):
-        """查询星穹铁道 UID 展示柜报告。用法：/srprofile 100534214"""
+    @staticmethod
+    def _binding_key(event: AstrMessageEvent) -> Optional[str]:
+        platform = event.get_platform_id()
+        sender = event.get_sender_id()
+        if not platform or not sender:
+            return None
+        return "uid:" + json.dumps([platform, sender], separators=(",", ":"))
+
+    @filter.command("绑定星铁", alias={"srbind"})
+    async def bind_uid(self, event: AstrMessageEvent, uid: str = ""):
+        """将一个公开展示柜 UID 设为发送者的默认查询目标。"""
+        key = self._binding_key(event)
+        if key is None:
+            yield event.plain_result("无法识别发送者，请在 QQ 会话中重试。")
+            return
+        if not re.fullmatch(r"[0-9]{8,10}", uid):
+            yield event.plain_result("用法：/绑定星铁 <8至10位数字UID>")
+            return
+        await self.put_kv_data(key, uid)
+        yield event.plain_result(f"已绑定星铁 UID {uid}。发送 /星铁面板 查看展示柜图片。")
+
+    @filter.command("我的星铁UID", alias={"sruid"})
+    async def show_uid(self, event: AstrMessageEvent):
+        """查看发送者自己绑定的 UID。"""
+        key = self._binding_key(event)
+        uid = await self.get_kv_data(key, None) if key else None
+        yield event.plain_result(f"当前绑定的星铁 UID：{uid}" if uid else "暂无绑定。请发送 /绑定星铁 <UID>。")
+
+    @filter.command("解绑星铁", alias={"srunbind"})
+    async def unbind_uid(self, event: AstrMessageEvent):
+        """清除发送者自己的 UID 绑定。"""
+        key = self._binding_key(event)
+        if key is None:
+            yield event.plain_result("无法识别发送者，请在 QQ 会话中重试。")
+            return
+        await self.delete_kv_data(key)
+        yield event.plain_result("当前已无绑定的星铁 UID。")
+
+    @filter.command("srprofile", alias={"sr", "星铁面板"})
+    async def srprofile(self, event: AstrMessageEvent, uid: str = ""):
+        """发送指定 UID 的展示柜图片，省略 UID 时使用个人绑定。"""
+        if not uid:
+            key = self._binding_key(event)
+            uid = await self.get_kv_data(key, None) if key else None
+            if not uid:
+                yield event.plain_result("请先发送 /绑定星铁 <UID>，或用 /星铁面板 <UID> 临时查询。")
+                return
+        elif not re.fullmatch(r"[0-9]{8,10}", uid):
+            yield event.plain_result("用法：/星铁面板 [8至10位数字UID]")
+            return
         async for result in self._send_profile(event, uid):
             yield result
 
-    @filter.command("sr")
-    async def sr(self, event: AstrMessageEvent, uid: str):
-        """查询星穹铁道 UID 展示柜报告。用法：/sr 100534214"""
-        async for result in self._send_profile(event, uid):
-            yield result
-
-    @filter.regex(r"(?:uid|UID|星铁|崩铁|星穹|开拓者|查|查询|profile|资料)[^\d]{0,24}\d{8,10}")
+    @filter.regex(UID_PATTERN.pattern)
     async def natural_query(self, event: AstrMessageEvent):
         """自然语言触发，例如：帮我查一下星铁 UID 100534214。"""
-        match = UID_PATTERN.search(event.message_str or "")
-        if not match:
+        text = (event.message_str or "").strip()
+        # AstrBot 的正则和命令各自匹配。同一条命令只由命令处理器回复。
+        if re.match(r"^[^\w]*(?:绑定星铁|解绑星铁|我的星铁UID|星铁面板|srprofile|srbind|srunbind|sruid|sr)(?:\s|$)", text, re.I):
             return
-        async for result in self._send_profile(event, match.group(1)):
-            yield result
+        match = UID_PATTERN.search(text)
+        if match:
+            async for result in self._send_profile(event, match.group(1)):
+                yield result
 
     async def _send_profile(self, event: AstrMessageEvent, uid: str):
         uid = _normalize_uid(uid)
@@ -443,7 +487,6 @@ class StarRailProfilePlugin(Star):
         output_dir.mkdir(parents=True, exist_ok=True)
         player_uid = str((data.get("player") or {}).get("uid") or uid)
         image_path = output_dir / f"starrail_report_{player_uid}.png"
-        html_path = Path(tempfile.gettempdir()) / f"starrail_report_{player_uid}.html"
         asset_resolver = AssetResolver(
             self.config.get("asset_base") or ASSET_BASE,
             int(self.config.get("asset_timeout") or 20),
@@ -452,17 +495,21 @@ class StarRailProfilePlugin(Star):
             _bool_config(self.config.get("inline_assets"), True),
         )
         html = await asyncio.to_thread(build_report_html, data, asset_resolver)
-        html_path.write_text(html, encoding="utf-8")
-        await render_html_to_png(
-            html_path,
-            image_path,
-            int(self.config.get("width") or 1080),
-            int(self.config.get("height") or 1920),
-            int(self.config.get("screenshot_timeout") or 120),
-            _normalize_browser_channel(self.config.get("browser_channel")),
-        )
-        if not _bool_config(self.config.get("keep_html"), False):
-            html_path.unlink(missing_ok=True)
+        # Two group members may request the same UID concurrently.
+        with tempfile.TemporaryDirectory(dir=output_dir) as work:
+            html_path = Path(work) / "profile.html"
+            rendered = Path(work) / "profile.png"
+            html_path.write_text(html, encoding="utf-8")
+            await render_html_to_png(
+                html_path, rendered,
+                int(self.config.get("width") or 1080),
+                int(self.config.get("height") or 1920),
+                int(self.config.get("screenshot_timeout") or 120),
+                _normalize_browser_channel(self.config.get("browser_channel")),
+            )
+            rendered.replace(image_path)
+            if _bool_config(self.config.get("keep_html"), False):
+                html_path.replace(output_dir / f"starrail_report_{player_uid}.html")
         return image_path
 
     async def initialize(self):
