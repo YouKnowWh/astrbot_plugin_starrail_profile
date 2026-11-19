@@ -12,7 +12,11 @@ from typing import Any, Callable, Optional
 import requests
 from astrbot.api import logger
 from astrbot.api.event import AstrMessageEvent, filter
-from astrbot.api.star import Context, Star, register
+from astrbot.api.star import Context, Star, StarTools, register
+from astrbot.core.star.filter.command import GreedyStr
+
+from .advisor import Advisor
+from .showcase import describe_showcase
 
 
 API_BASE = "https://api.mihomo.me/sr_info_parsed"
@@ -392,11 +396,12 @@ async def render_html_to_png(html_path: Path, output_path: Path, width: int, hei
     return output_path
 
 
-@register("astrbot_plugin_starrail_profile", "YueHua46", "查询星铁展示柜图片，支持群成员绑定个人 UID。", "1.1.0")
+@register("astrbot_plugin_starrail_profile", "YueHua46", "星铁展示柜、个人配队与货币战争顾问。", "1.2.0")
 class StarRailProfilePlugin(Star):
     def __init__(self, context: Context, config: Optional[dict] = None):
         super().__init__(context)
         self.config = config or {}
+        self.advisor = Advisor(StarTools.get_data_dir("astrbot_plugin_starrail_profile"))
 
     @staticmethod
     def _binding_key(event: AstrMessageEvent) -> Optional[str]:
@@ -456,7 +461,7 @@ class StarRailProfilePlugin(Star):
         """自然语言触发，例如：帮我查一下星铁 UID 100534214。"""
         text = (event.message_str or "").strip()
         # AstrBot 的正则和命令各自匹配。同一条命令只由命令处理器回复。
-        if re.match(r"^[^\w]*(?:绑定星铁|解绑星铁|我的星铁UID|星铁面板|srprofile|srbind|srunbind|sruid|sr)(?:\s|$)", text, re.I):
+        if re.match(r"^[^\w]*(?:绑定星铁|解绑星铁|我的星铁UID|星铁配队|星铁面板|srprofile|srbind|srunbind|sruid|sr)(?:\s|$)", text, re.I):
             return
         match = UID_PATTERN.search(text)
         if match:
@@ -473,8 +478,8 @@ class StarRailProfilePlugin(Star):
             logger.exception("生成星穹铁道 Profile 图片失败")
             yield event.plain_result(f"生成失败：{exc}")
 
-    async def _create_report(self, uid: str) -> Path:
-        data = await asyncio.to_thread(
+    async def _load_profile(self, uid: str) -> dict:
+        return await asyncio.to_thread(
             fetch_profile,
             uid,
             str(self.config.get("lang") or "cn"),
@@ -483,6 +488,9 @@ class StarRailProfilePlugin(Star):
             self.config.get("proxy") or None,
             _bool_config(self.config.get("use_env_proxy"), False),
         )
+
+    async def _create_report(self, uid: str) -> Path:
+        data = await self._load_profile(uid)
         output_dir = Path(self.config.get("output_dir") or "data/starrail_profile_reports")
         output_dir.mkdir(parents=True, exist_ok=True)
         player_uid = str((data.get("player") or {}).get("uid") or uid)
@@ -511,6 +519,106 @@ class StarRailProfilePlugin(Star):
             if _bool_config(self.config.get("keep_html"), False):
                 html_path.replace(output_dir / f"starrail_report_{player_uid}.html")
         return image_path
+
+    async def _member_showcase(self, event: AstrMessageEvent) -> dict:
+        key = self._binding_key(event)
+        uid = await self.get_kv_data(key, None) if key else None
+        if not uid:
+            return {"提示": "请先发送 /绑定星铁 <UID>，然后再问我怎么配队。"}
+        # Only reuse within this message, and only for the same bound UID.
+        cached = event.get_extra("hsr_profile_snapshot")
+        if cached and cached[0] == uid:
+            return cached[1]
+        try:
+            snapshot = describe_showcase(await self._load_profile(uid), uid)
+        except (ValueError, RuntimeError, KeyError, TypeError) as exc:
+            logger.warning("读取配队展示柜失败：%s", type(exc).__name__)
+            if isinstance(exc, ValueError):
+                return {"提示": str(exc)}
+            return {"提示": "展示柜暂时无法读取，请稍后重试。"}
+        event.set_extra("hsr_profile_snapshot", (uid, snapshot))
+        return snapshot
+
+    @filter.llm_tool(name="hsr_my_showcase")
+    async def my_showcase(self, event: AstrMessageEvent):
+        """群友问我的角色、根据我的练度或展示柜怎么配队时，读取当前发言人绑定的公开角色、光锥、面板及逐件遗器。"""
+        return json.dumps(await self._member_showcase(event), ensure_ascii=False, separators=(",", ":"))
+
+    @filter.command("星铁配队")
+    async def team(self, event: AstrMessageEvent, goal: GreedyStr):
+        """根据自己的公开展示柜配队，可附上想打的敌人或玩法。"""
+        snapshot = await self._member_showcase(event)
+        if "提示" in snapshot:
+            yield event.plain_result(snapshot["提示"])
+            return
+        instructions = (
+            "你是崩坏星穹铁道配队顾问。用中文回答本次发言人。候选来自本次所附的公开展示柜，"
+            "只用已显示或玩家明确补充的角色组队。根据装备光锥叠影、已生效遗器套装及关键面板数值解释取舍，"
+            "给首选队伍、开局动作和最值得改的一项；合理队伍缺人时说明缺哪个位置。"
+            "按需用 hsr_profile_regular 核对机制。未展示的角色、未穿戴的装备、当前敌方弱点均不可臆测。"
+            "若问货币战争，请用当季规则与社区攻略，按实际局面分析。"
+        )
+        prompt = json.dumps({"玩家目标": goal or "给我一套常规配队", "本次展示柜": snapshot},
+                            ensure_ascii=False, separators=(",", ":"))
+        yield event.request_llm(prompt=prompt, system_prompt=instructions)
+
+    async def _query(self, fn, *args):
+        try:
+            result = await asyncio.to_thread(fn, *args)
+        except (ValueError, OSError) as exc:
+            result = {"查询失败": str(exc), "提示": "向群友说明缺少已核对的数据。"}
+        return json.dumps(result, ensure_ascii=False)
+
+    @filter.llm_tool(name="hsr_profile_regular")
+    async def regular(self, event: AstrMessageEvent, name: str, level: int = 0):
+        """星铁常规配队和光锥选择。查询一个角色的技能、机制和星魂或一个光锥的各阶效果。
+
+        Args:
+            name(string): 一个角色或光锥的中文名称、常用别名或游戏 ID。
+            level(number): 技能等级，填 0 取普攻6、其他10，按技能等级上限截取。光锥始终返回五阶。
+        """
+        if not isinstance(level, (int, float)) or level not in range(16):
+            return "技能等级应为 0 至 15 的整数"
+        return await self._query(self.advisor.regular, name, int(level))
+
+    @filter.llm_tool(name="hsr_profile_currency")
+    async def currency(self, event: AstrMessageEvent, name: str):
+        """查询星铁货币战争当前赛季某个员工、羁绊、装备、投资策略、环境或主角光环的实际效果。
+
+        Args:
+            name(string): 赛季条目名称或 ID，模糊名称会列出候选。
+        """
+        return await self._query(self.advisor.currency, name)
+
+    @filter.llm_tool(name="hsr_profile_currency_guides")
+    async def guides(self, event: AstrMessageEvent, role: str = ""):
+        """查询星铁货币战争当前版本与赛季的热门阵容、前后台站位、投资方向、装备与过渡思路。
+
+        Args:
+            role(string): 指定一个核心员工的完整中文名或 ID，空字符串查本季热门。
+        """
+        return await self._query(self.advisor.currency, role, True)
+
+    @filter.command("星铁数据")
+    async def status(self, event: AstrMessageEvent):
+        """检查两个资料源并显示版本与缓存状态。"""
+        outputs = await asyncio.gather(
+            self._query(self.advisor.regular, "1001"),
+            self._query(self.advisor.currency, "投资环境"),
+        )
+        lines = []
+        for label, output in zip(("常规战斗", "货币战争"), outputs):
+            row = json.loads(output)
+            if "查询失败" in row:
+                lines.append(f"{label}：{row['查询失败']}")
+                continue
+            version = (
+                row.get("来源提交日期")
+                or f"{row['游戏版本']} 赛季 {row['赛季']}.{row['子赛季']}"
+            )
+            state = "上游暂不可达，使用旧缓存" if row["刷新失败沿用缓存"] else "可用"
+            lines.append(f"{label}：{version}，{state}。上次核对 {row['上次核对']}")
+        yield event.plain_result("\n".join(lines))
 
     async def initialize(self):
         logger.info("astrbot_plugin_starrail_profile initialized")
