@@ -397,7 +397,7 @@ async def render_html_to_png(html_path: Path, output_path: Path, width: int, hei
     return output_path
 
 
-@register("astrbot_plugin_starrail_profile", "YueHua46", "星铁展示柜、个人配队与货币战争顾问。", "1.2.2")
+@register("astrbot_plugin_starrail_profile", "YueHua46", "星铁展示柜、个人配队与货币战争顾问。", "1.2.3")
 class StarRailProfilePlugin(Star):
     def __init__(self, context: Context, config: Optional[dict] = None):
         super().__init__(context)

@@ -339,40 +339,55 @@ def cone(d, row):
     }
 
 
-def lookup(data, query, level=0, skill="", question=""):
+class NameIndex:
+    """Keep exact and substring lookup in the original catalog order."""
+
+    def __init__(self, data):
+        self.exact = {}
+        self.entries = []
+        for group in ("characters", "light_cones"):
+            aliases = data["nickname"].get(group, {})
+            for i, row in data[group].items():
+                path = data["paths"][row["path"]]["name"]
+                display = row["name"].replace("{NICKNAME}", "开拓者")
+                names = (
+                    i,
+                    display,
+                    display + "·" + path,
+                    path + display,
+                    *aliases.get(i, []),
+                )
+                keys = tuple(dict.fromkeys(name.casefold() for name in names if name))
+                entry = (group, row, path)
+                self.entries.append((keys, entry))
+                for key in keys:
+                    self.exact.setdefault(key, []).append(entry)
+
+    def find(self, key):
+        if key in self.exact:
+            return self.exact[key]
+        return [
+            entry for names, entry in self.entries if any(key in name for name in names)
+        ]
+
+
+def lookup(data, query, level=0, skill="", question="", *, index=None):
     if level not in range(16):
         raise ValueError("技能等级范围为 1–15，0 表示常用等级")
     key = query.strip().casefold()
     if not 1 <= len(key) <= 60:
         raise ValueError("请提供一个角色名、光锥名或 ID")
-    matches = []
-    for group in ("characters", "light_cones"):
-        aliases = data["nickname"].get(group, {})
-        for i, row in data[group].items():
-            path = data["paths"][row["path"]]["name"]
-            display = row["name"].replace("{NICKNAME}", "开拓者")
-            names = [
-                i,
-                display,
-                display + "·" + path,
-                path + display,
-                *aliases.get(i, []),
-            ]
-            names = [name.casefold() for name in names if name]
-            if key in names or any(key in name for name in names):
-                matches.append((0 if key in names else 1, group, row, path))
+    matches = (index or NameIndex(data)).find(key)
     if not matches:
         return {"结果": "未收录，请使用正式中文名或 ID"}
-    best = min(x[0] for x in matches)
-    options = [m for m in matches if m[0] == best]
-    if len(options) > 1:
+    if len(matches) > 1:
         return {
             "请确认条目": [
                 f"{r['name'].replace('{NICKNAME}', '开拓者')}（{p}，{r['id']}）"
-                for _, _, r, p in options[:20]
+                for _, r, p in matches[:20]
             ]
         }
-    _, group, row, path = options[0]
+    group, row, path = matches[0]
     info = (
         character(data, row, level, skill, question)
         if group == "characters"
