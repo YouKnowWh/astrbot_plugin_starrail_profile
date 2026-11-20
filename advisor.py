@@ -11,13 +11,15 @@ def checked_at(timestamp):
 class Advisor:
     def __init__(self, directory):
         self.snapshots = Snapshots(directory)
+        self.catalog = regular.Catalog(self.snapshots)
 
-    def regular(self, name, level=0):
-        data, at, stale = self.snapshots.read("regular", 6 * 3600, regular.refresh)
+    async def regular(self, name, level=0):
+        data, at, state, stale = await self.catalog.read()
         return {
             "来源": f"https://github.com/{regular.REPO}/tree/{data['sha']}/index_min/cn",
             "来源提交日期": data["updated"],
-            "上次核对": checked_at(at),
+            "上次核对": checked_at(at) if at is not None else None,
+            "资料状态": state,
             "刷新失败沿用缓存": stale,
             **regular.lookup(data, name, level),
         }

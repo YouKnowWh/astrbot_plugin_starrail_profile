@@ -2,6 +2,7 @@ import asyncio
 import base64
 import html
 import json
+from inspect import iscoroutinefunction
 import re
 import tempfile
 import time
@@ -396,12 +397,24 @@ async def render_html_to_png(html_path: Path, output_path: Path, width: int, hei
     return output_path
 
 
-@register("astrbot_plugin_starrail_profile", "YueHua46", "星铁展示柜、个人配队与货币战争顾问。", "1.2.0")
+@register("astrbot_plugin_starrail_profile", "YueHua46", "星铁展示柜、个人配队与货币战争顾问。", "1.2.1")
 class StarRailProfilePlugin(Star):
     def __init__(self, context: Context, config: Optional[dict] = None):
         super().__init__(context)
         self.config = config or {}
         self.advisor = Advisor(StarTools.get_data_dir("astrbot_plugin_starrail_profile"))
+
+        # Register before AstrBot binds handlers to the loaded plugin instance.
+        # With the switch off no command names, regexes or tools compete with other plugins.
+        if _bool_config(self.config.get("enable_showcase"), False):
+            handlers = type(self)
+            filter.command("绑定星铁", alias={"srbind"})(handlers.bind_uid)
+            filter.command("我的星铁UID", alias={"sruid"})(handlers.show_uid)
+            filter.command("解绑星铁", alias={"srunbind"})(handlers.unbind_uid)
+            filter.command("srprofile", alias={"sr", "星铁面板"})(handlers.srprofile)
+            filter.regex(UID_PATTERN.pattern)(handlers.natural_query)
+            filter.llm_tool(name="hsr_my_showcase")(handlers.my_showcase)
+            filter.command("星铁配队")(handlers.team)
 
     @staticmethod
     def _binding_key(event: AstrMessageEvent) -> Optional[str]:
@@ -411,7 +424,6 @@ class StarRailProfilePlugin(Star):
             return None
         return "uid:" + json.dumps([platform, sender], separators=(",", ":"))
 
-    @filter.command("绑定星铁", alias={"srbind"})
     async def bind_uid(self, event: AstrMessageEvent, uid: str = ""):
         """将一个公开展示柜 UID 设为发送者的默认查询目标。"""
         key = self._binding_key(event)
@@ -424,14 +436,12 @@ class StarRailProfilePlugin(Star):
         await self.put_kv_data(key, uid)
         yield event.plain_result(f"已绑定星铁 UID {uid}。发送 /星铁面板 查看展示柜图片。")
 
-    @filter.command("我的星铁UID", alias={"sruid"})
     async def show_uid(self, event: AstrMessageEvent):
         """查看发送者自己绑定的 UID。"""
         key = self._binding_key(event)
         uid = await self.get_kv_data(key, None) if key else None
         yield event.plain_result(f"当前绑定的星铁 UID：{uid}" if uid else "暂无绑定。请发送 /绑定星铁 <UID>。")
 
-    @filter.command("解绑星铁", alias={"srunbind"})
     async def unbind_uid(self, event: AstrMessageEvent):
         """清除发送者自己的 UID 绑定。"""
         key = self._binding_key(event)
@@ -441,7 +451,6 @@ class StarRailProfilePlugin(Star):
         await self.delete_kv_data(key)
         yield event.plain_result("当前已无绑定的星铁 UID。")
 
-    @filter.command("srprofile", alias={"sr", "星铁面板"})
     async def srprofile(self, event: AstrMessageEvent, uid: str = ""):
         """发送指定 UID 的展示柜图片，省略 UID 时使用个人绑定。"""
         if not uid:
@@ -456,7 +465,6 @@ class StarRailProfilePlugin(Star):
         async for result in self._send_profile(event, uid):
             yield result
 
-    @filter.regex(UID_PATTERN.pattern)
     async def natural_query(self, event: AstrMessageEvent):
         """自然语言触发，例如：帮我查一下星铁 UID 100534214。"""
         text = (event.message_str or "").strip()
@@ -539,12 +547,10 @@ class StarRailProfilePlugin(Star):
         event.set_extra("hsr_profile_snapshot", (uid, snapshot))
         return snapshot
 
-    @filter.llm_tool(name="hsr_my_showcase")
     async def my_showcase(self, event: AstrMessageEvent):
         """群友问我的角色、根据我的练度或展示柜怎么配队时，读取当前发言人绑定的公开角色、光锥、面板及逐件遗器。"""
         return json.dumps(await self._member_showcase(event), ensure_ascii=False, separators=(",", ":"))
 
-    @filter.command("星铁配队")
     async def team(self, event: AstrMessageEvent, goal: GreedyStr):
         """根据自己的公开展示柜配队，可附上想打的敌人或玩法。"""
         snapshot = await self._member_showcase(event)
@@ -564,7 +570,7 @@ class StarRailProfilePlugin(Star):
 
     async def _query(self, fn, *args):
         try:
-            result = await asyncio.to_thread(fn, *args)
+            result = await fn(*args) if iscoroutinefunction(fn) else await asyncio.to_thread(fn, *args)
         except (ValueError, OSError) as exc:
             result = {"查询失败": str(exc), "提示": "向群友说明缺少已核对的数据。"}
         return json.dumps(result, ensure_ascii=False)
@@ -617,7 +623,9 @@ class StarRailProfilePlugin(Star):
                 or f"{row['游戏版本']} 赛季 {row['赛季']}.{row['子赛季']}"
             )
             state = "上游暂不可达，使用旧缓存" if row["刷新失败沿用缓存"] else "可用"
-            lines.append(f"{label}：{version}，{state}。上次核对 {row['上次核对']}")
+            state = row.get("资料状态", state)
+            last = row["上次核对"] or "尚未在线核对"
+            lines.append(f"{label}：{version}，{state}。上次核对 {last}")
         yield event.plain_result("\n".join(lines))
 
     async def initialize(self):

@@ -1,4 +1,10 @@
 {
+  "enable_showcase": {
+    "description": "启用本插件的练度查询和 UID 绑定",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后注册展示柜图片、绑定/解绑、我的 UID、个人配队命令和展示柜模型工具。保存并重载本插件后生效。已有其他练度插件时可保持关闭。"
+  },
   "lang": {
     "description": "MiHoMo Parsed Data API 语言",
     "type": "string",

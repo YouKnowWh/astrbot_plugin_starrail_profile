@@ -1,6 +1,12 @@
 # 星铁展示柜与配队顾问 · AstrBot
 
-基于 [YueHua46 的星铁展示柜图片插件](https://github.com/YueHua46/astrbot_plugin_starrail_profile)，本版整合 [星铁顾问](https://github.com/YouKnowWh/astrbot_plugin_hsr_advisor)。群友绑定一次 UID，即可查面板图片，或让群里已有的模型根据展示角色、实际光锥和遗器给配队建议。
+基于 [YueHua46 的星铁展示柜图片插件](https://github.com/YueHua46/astrbot_plugin_starrail_profile)，本版整合 [星铁顾问](https://github.com/YouKnowWh/astrbot_plugin_hsr_advisor)。开启内置练度功能后，群友绑定一次 UID，即可查面板图片，或让群里已有的模型根据展示角色、实际光锥和遗器给配队建议。
+
+## 内置练度查询开关
+
+默认开启常规角色、光锥和货币战争顾问。内置练度功能默认关闭，包括 UID 绑定与解绑、面板图、自然语言查 UID、展示柜工具和个人配队命令。已有自己的练度插件时可以继续用它；顾问可以结合玩家提供的面板，或使用当前人格有权调用的第三方工具返回的资料。
+
+要使用本插件的练度功能，在 AstrBot 插件设置中打开「启用本插件的练度查询和 UID 绑定」（`enable_showcase`），保存并重载。旧配置缺少此项时也按关闭处理。关闭和重新开启都保留原绑定。
 
 ## QQ 群命令
 
@@ -49,11 +55,11 @@ python -m playwright install --with-deps chromium
 
 ## 顾问如何使用展示柜
 
-开启群聊的聊天模型并允许本插件。发送 `/星铁配队` 会带着本人的角色资料向当前模型发起请求。自然语言模式使用支持工具调用的 AstrBot 内置 Agent，在当前人格启用本插件的工具和 `hsr-showcase-advisor` 技能后，可以直接问「按我的展示柜配一队，为什么这样选光锥？」。账号未绑定或没有展示角色时，机器人会提示补齐信息。
+开启群聊的聊天模型并允许本插件。开启内置练度功能后，发送 `/星铁配队` 会带着本人的角色资料向当前模型发起请求。自然语言模式使用支持工具调用的 AstrBot 内置 Agent，在当前人格启用本插件的工具和 `hsr-showcase-advisor` 技能后，可以直接问「按我的展示柜配一队，为什么这样选光锥？」。账号未绑定或没有展示角色时，机器人会提示补齐信息。
 
 模型接收公开角色的等级、星魂、速度等面板数据，已装备光锥的等级、叠影，以及每件遗器的等级、套装、主副词条。只用可见的装备和角色作为配队依据。展示柜之外的持有情况、仓库里未装备的遗器和当前敌方信息需要玩家补充。
 
-常规角色和光锥资料取自 [StarRailRes](https://github.com/Mar-7th/StarRailRes)，6 小时到期后下次查询时自动检查；[货币战争赛季资料和攻略](https://act.miyoushe.com/sr/event/currency-wars/index.html)每小时按需刷新。问货币战争时可直接描述这局的商店、金币及前后台，再请机器人给下一步建议。
+常规资料随安装包附带离线快照，整轮联网刷新限时 8 秒；刷新失败会返回已缓存或随包资料，并标注状态。常规角色和光锥资料取自 [StarRailRes](https://github.com/Mar-7th/StarRailRes)，6 小时到期后下次查询时自动检查；[货币战争赛季资料和攻略](https://act.miyoushe.com/sr/event/currency-wars/index.html)每小时按需刷新。问货币战争时可直接描述这局的商店、金币及前后台，再请机器人给下一步建议。
 
 ## 使用
 

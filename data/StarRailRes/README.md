@@ -1,0 +1,1 @@
+随包资料取自 [Mar-7th/StarRailRes 的 03907e7 提交](https://github.com/Mar-7th/StarRailRes/tree/03907e798b46f9eb109a1f882055cdf49ce3d374/index_min/cn)。regular.json.gz 将 regular.py 中 TABLES 列出的十一张中文 JSON 表按表名合并，附提交号与提交日期后使用 gzip 压缩。数据保留上游的 [许可证](LICENSE)；游戏内容的权利归各自权利人。

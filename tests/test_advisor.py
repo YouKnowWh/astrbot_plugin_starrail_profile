@@ -1,3 +1,4 @@
+import asyncio
 import importlib
 import sys
 import tempfile
@@ -91,8 +92,8 @@ class RefreshTests(unittest.TestCase):
 
     def test_revision_reused(self):
         old = {"sha": "a" * 40}
-        with patch.object(regular, "request_json", return_value=old) as request:
-            self.assertIs(regular.refresh(old), old)
+        with patch.object(regular, "fetch_json", return_value=old) as request:
+            self.assertIs(asyncio.run(regular.refresh(old)), old)
             request.assert_called_once()
 
     def test_multiplier_units(self):
