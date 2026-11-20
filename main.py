@@ -397,7 +397,7 @@ async def render_html_to_png(html_path: Path, output_path: Path, width: int, hei
     return output_path
 
 
-@register("astrbot_plugin_starrail_profile", "YueHua46", "星铁展示柜、个人配队与货币战争顾问。", "1.2.1")
+@register("astrbot_plugin_starrail_profile", "YueHua46", "星铁展示柜、个人配队与货币战争顾问。", "1.2.2")
 class StarRailProfilePlugin(Star):
     def __init__(self, context: Context, config: Optional[dict] = None):
         super().__init__(context)
@@ -576,16 +576,17 @@ class StarRailProfilePlugin(Star):
         return json.dumps(result, ensure_ascii=False)
 
     @filter.llm_tool(name="hsr_profile_regular")
-    async def regular(self, event: AstrMessageEvent, name: str, level: int = 0):
+    async def regular(self, event: AstrMessageEvent, name: str, level: int = 0, skill: str = ""):
         """星铁常规配队和光锥选择。查询一个角色的技能、机制和星魂或一个光锥的各阶效果。
 
         Args:
             name(string): 一个角色或光锥的中文名称、常用别名或游戏 ID。
-            level(number): 技能等级，填 0 取普攻6、其他10，按技能等级上限截取。光锥始终返回五阶。
+            level(number): 玩家指定几级就填几，例如战技6级填6。只有未指定等级才填0。
+            skill(string): 单问技能时填类型（普攻、战技、终结技、天赋、秘技等）；查询完整档案或光锥时留空。
         """
         if not isinstance(level, (int, float)) or level not in range(16):
             return "技能等级应为 0 至 15 的整数"
-        return await self._query(self.advisor.regular, name, int(level))
+        return await self._query(self.advisor.regular, name, int(level), skill, event.get_message_str() if event else "")
 
     @filter.llm_tool(name="hsr_profile_currency")
     async def currency(self, event: AstrMessageEvent, name: str):

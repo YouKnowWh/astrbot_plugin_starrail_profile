@@ -13,7 +13,7 @@ class Advisor:
         self.snapshots = Snapshots(directory)
         self.catalog = regular.Catalog(self.snapshots)
 
-    async def regular(self, name, level=0):
+    async def regular(self, name, level=0, skill="", question=""):
         data, at, state, stale = await self.catalog.read()
         return {
             "来源": f"https://github.com/{regular.REPO}/tree/{data['sha']}/index_min/cn",
@@ -21,7 +21,7 @@ class Advisor:
             "上次核对": checked_at(at) if at is not None else None,
             "资料状态": state,
             "刷新失败沿用缓存": stale,
-            **regular.lookup(data, name, level),
+            **regular.lookup(data, name, level, skill, question),
         }
 
     def currency(self, name, lineup=False):

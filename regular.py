@@ -206,26 +206,77 @@ def stats80(promotion):
     }
 
 
-def character(d, row, level):
+SKILL_ALIAS = {"普通攻击": "普攻", "大招": "终结技"}
+_SKILL = r"普通攻击|普攻|战技|终结技|大招|天赋|秘技|欢愉技"
+_LEVEL = r"(?<![0-9])([0-9]{1,2})\s*级"
+_AFTER = re.compile(rf"({_SKILL})\s*(?:等级)?\s*[:：]?\s*{_LEVEL}")
+_BEFORE = re.compile(rf"{_LEVEL}\s*(?:的)?({_SKILL})")
+_MORE = re.compile(rf"\s*(?:和|与|、|/|对比|到)\s*{_LEVEL}")
+
+
+def levels_in_question(text):
+    levels = {}
+    for pattern, reverse in ((_AFTER, False), (_BEFORE, True)):
+        for match in pattern.finditer(text):
+            kind, number = match.groups()[::-1] if reverse else match.groups()
+            bucket = levels.setdefault(SKILL_ALIAS.get(kind, kind), set())
+            bucket.add(int(number))
+            end = match.end()
+            while not reverse and (extra := _MORE.match(text, end)):
+                bucket.add(int(extra[1]))
+                end = extra.end()
+    return levels
+
+
+def character(d, row, level, skill="", question=""):
     cid = row["id"]
+    requested = levels_in_question(question)
+    # A level stated for one teammate must not override a lookup of another.
+    if requested and any(
+        other["name"] in question
+        for other in d["characters"].values()
+        if other["name"]
+        and other["name"] != row["name"]
+        and other["name"] not in row["name"]
+    ):
+        requested = {}
+    skill = SKILL_ALIAS.get(skill.strip(), skill.strip())
     skills = []
     for sid in row["skills"]:
         s = d["character_skills"][sid]
-        if s["type"] == "MazeNormal":
+        if s["type"] == "MazeNormal" or (
+            skill and skill not in (s["type_text"], s["name"])
+        ):
             continue
         default = 6 if s["type"] == "Normal" else 10
-        n = min(level or default, s["max_level"])
-        params = s["params"]
-        values = params[n - 1] if len(params) >= n else []
-        skills.append(
-            {
+        explicit = requested.get(s["type_text"])
+        reference = min(level or default, s["max_level"])
+        for n in sorted(explicit or {level if skill and level else reference}):
+            entry = {
                 "id": sid,
                 "强化形态": sid.startswith("1" + cid) and len(sid) > len(cid) + 2,
                 "类型": s["type_text"],
                 "名称": s["name"],
                 "等级": n,
-                "效果": describe(s["desc"] or s["simple_desc"], values) or "来源未列出",
+                "数据表最高等级": s["max_level"],
+                "等级依据": "问题明确指定"
+                if explicit
+                else ("工具参数" if level else "默认参考等级"),
             }
+            if not 1 <= n <= s["max_level"]:
+                entry["说明"] = "该等级超出本技能数据范围"
+            else:
+                params = s["params"]
+                values = params[n - 1] if len(params) >= n else []
+                entry["效果"] = (
+                    describe(s["desc"] or s["simple_desc"], values) or "来源未列出"
+                )
+            skills.append(entry)
+    if skill:
+        return (
+            {"技能": skills}
+            if skills
+            else {"结果": "未匹配该技能，请按技能类型或正式名称查询"}
         )
     traces = []
     for tid in row["skill_trees"]:
@@ -288,7 +339,7 @@ def cone(d, row):
     }
 
 
-def lookup(data, query, level=0):
+def lookup(data, query, level=0, skill="", question=""):
     if level not in range(16):
         raise ValueError("技能等级范围为 1–15，0 表示常用等级")
     key = query.strip().casefold()
@@ -322,7 +373,11 @@ def lookup(data, query, level=0):
             ]
         }
     _, group, row, path = options[0]
-    info = character(data, row, level) if group == "characters" else cone(data, row)
+    info = (
+        character(data, row, level, skill, question)
+        if group == "characters"
+        else cone(data, row)
+    )
     return {
         "名称": row["name"].replace("{NICKNAME}", "开拓者"),
         "id": row["id"],
